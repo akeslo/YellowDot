@@ -11,39 +11,91 @@ import LaunchAtLogin
 import SwiftUI
 
 let cid = CGSMainConnectionID()
-let WM = WindowManager()
+
+struct OverlayTarget: Codable, Identifiable, Equatable, Defaults.Serializable {
+    var id: UUID = UUID()
+    var ownerName: String
+    var windowName: String
+    var width: CGFloat
+    var height: CGFloat
+    var enabled: Bool = true
+
+    var description: String {
+        let name = windowName.isEmpty ? "" : " (\(windowName))"
+        return "\(ownerName)\(name) [\(Int(width))x\(Int(height))]"
+    }
+}
 
 extension Defaults.Keys {
     static let showMenubarIcon = Key<Bool>("showMenubarIcon", default: true)
-    static let indicatorColor = Key<DotColor>("indicatorColor", default: DotColor.dim)
-    static let dotColor = Key<DotColor>("dotColor", default: DotColor.adaptive)
+    static let overlayColor = Key<String>("overlayColor", default: "#FFFF00FF")
+    static let targets = Key<[OverlayTarget]>("targets", default: [])
     static let launchCount = Key<Int>("launchCount", default: 0)
 }
 
+extension NSColor {
+    convenience init(hex: String) {
+        let hex = hex.trimmingCharacters(in: .alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r, g, b, a: UInt64
+        switch hex.count {
+        case 6: (r, g, b, a) = ((int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF, 255)
+        case 8: (r, g, b, a) = ((int >> 24) & 0xFF, (int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF)
+        default: (r, g, b, a) = (0, 0, 0, 255)
+        }
+        self.init(srgbRed: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, alpha: Double(a) / 255)
+    }
+
+    var hexString: String {
+        let c = usingColorSpace(.sRGB) ?? self
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "#%02X%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255), Int(a * 255))
+    }
+}
+
+extension Color {
+    var hexString: String { NSColor(self).usingColorSpace(.sRGB)?.hexString ?? "#000000FF" }
+    init(hex: String) {
+        self.init(nsColor: NSColor(hex: hex))
+    }
+}
+
 struct WindowInfo {
-    var bounds: CGRect // "kCGWindowBounds"
-    var memoryUsage: Int // "kCGWindowMemoryUsage"
-    var alpha: Int // "kCGWindowAlpha"
-    var sharingState: Int // "kCGWindowSharingState"
-    var number: Int // "kCGWindowNumber"
-    var ownerName: String // "kCGWindowOwnerName"
-    var storeType: Int // "kCGWindowStoreType"
-    var layer: Int // "kCGWindowLayer"
-    var ownerPID: Int // "kCGWindowOwnerPID"
-    var isOnscreen: Int // "kCGWindowIsOnscreen"
-    var name: String // "kCGWindowName"
-    var screen: String? // "display uuid"
-    var space: Int? // "space number"
+    var bounds: CGRect
+    var number: Int
+    var ownerName: String
+    var name: String
+    var screen: String?
+    var space: Int?
+    var pillNumber: Int?
 
-    var isControlCenterColoredIcon: Bool {
-        COLORED_MENUBAR_ICON_NAMES.contains(name)
-            && CONTROL_CENTER_NAMES.contains(ownerName)
-    }
-    var isDot: Bool {
-        name == "StatusIndicator"
+    var isIndicator: Bool {
+        name == "StatusIndicator" && ownerName == "Window Server"
     }
 
-    static func fromInfoDict(_ dict: [String: Any]) -> WindowInfo {
+    var displayName: String {
+        if ownerName == "Control Center" {
+            if !name.isEmpty && name != "Item-0" {
+                if name.contains(".") {
+                    return name.components(separatedBy: ".").last?.replacingOccurrences(of: "menu", with: "").capitalized ?? name
+                }
+                return name
+            }
+            return "Menu Extra"
+        }
+        return ownerName
+    }
+
+    var displaySub: String {
+        if ownerName == "Control Center" && (name.isEmpty || name == "Item-0") {
+            return "Internal ID: \(number)"
+        }
+        return name
+    }
+
+    static func fromInfoDict(_ dict: [String: Any], pillNumber: Int? = nil) -> WindowInfo {
         var rect = CGRect.zero
         if let bounds = dict["kCGWindowBounds"] as? [String: CGFloat],
            let x = bounds["X"], let y = bounds["Y"],
@@ -51,146 +103,138 @@ struct WindowInfo {
         {
             rect = CGRect(x: x, y: y, width: width, height: height)
         }
-
         let id = (dict["kCGWindowNumber"] as? Int) ?? 0
         let screen = CGSCopyManagedDisplayForWindow(cid, id)?.takeRetainedValue() as String?
         return WindowInfo(
             bounds: rect,
-            memoryUsage: (dict["kCGWindowMemoryUsage"] as? Int) ?? 0,
-            alpha: (dict["kCGWindowAlpha"] as? Int) ?? 0,
-            sharingState: (dict["kCGWindowSharingState"] as? Int) ?? 0,
             number: id,
             ownerName: (dict["kCGWindowOwnerName"] as? String) ?? "",
-            storeType: (dict["kCGWindowStoreType"] as? Int) ?? 0,
-            layer: (dict["kCGWindowLayer"] as? Int) ?? 0,
-            ownerPID: (dict["kCGWindowOwnerPID"] as? Int) ?? 0,
-            isOnscreen: (dict["kCGWindowIsOnscreen"] as? Int) ?? 0,
             name: (dict["kCGWindowName"] as? String) ?? "",
             screen: screen,
-            space: CGSManagedDisplayGetCurrentSpace(cid, screen as CFString?)
+            space: CGSManagedDisplayGetCurrentSpace(cid, screen as CFString?),
+            pillNumber: pillNumber
         )
     }
 }
 
-let CONTROL_CENTER_NAMES: Set<String> = [
-    "Control Center",
-    "Control Centre",
-    "مركز التحكم",
-    "Centre de control",
-    "Ovládací centrum",
-    "Kontrolcenter",
-    "Kontrollzentrum",
-    "Κέντρο ελέγχου",
-    "Centro de control",
-    "Ohjauskeskus",
-    "Centre de contrôle",
-    "מרכז הבקרה",
-    "कंट्रोल सेंटर",
-    "Kontrolni centar",
-    "Vezérlőközpont",
-    "Pusat Kontrol",
-    "Centro di Controllo",
-    "コントロールセンター",
-    "제어 센터",
-    "Pusat Kawalan",
-    "Bedieningspaneel",
-    "Kontrollsenter",
-    "Centrum sterowania",
-    "Central de Controle",
-    "Central de controlo",
-    "Centru de control",
-    "Пункт управления",
-    "Ovládacie centrum",
-    "Kontrollcenter",
-    "ศูนย์ควบคุม",
-    "Denetim Merkezi",
-    "Центр керування",
-    "Trung tâm điều khiển",
-    "控制中心",
-]
-
-let COLORED_MENUBAR_ICON_NAMES: Set<String> = [
-    "AudioVideoModule",
-    "عناصر التحكم في الصوت والفيديو",
-    "Controls d’àudio i de vídeo",
-    "Ovládání zvuku a videa",
-    "Lyd- og videoindstillinger",
-    "Audio- und Videosteuerung",
-    "Στοιχεία ελέγχου ήχου και βίντεο",
-    "Audio and Video Controls",
-    "Audio and Video Controls",
-    "Audio and Video Controls",
-    "Controles de audio y vídeo",
-    "Controles de audio y video",
-    "Ääni- ja videosäätimet",
-    "Commandes audio et vidéo",
-    "Contrôles audio et vidéo",
-    "פקדי שמע ווידאו",
-    "ऑडियो और वीडियो कंट्रोल",
-    "Audio i video kontrole",
-    "Hang- és videóvezérlők",
-    "Kontrol Audio dan Video",
-    "Controlli audio e video",
-    "オーディオとビデオのコントロール",
-    "오디오 및 비디오 제어",
-    "Kawalan Audio dan Video",
-    "Audio- en videoregelaars",
-    "Lyd- og videokontroller",
-    "Narzędzia audio i wideo",
-    "Controles de Áudio e Vídeo",
-    "Controlos de áudio e vídeo",
-    "Comenzi audio și video",
-    "Элементы управления аудио и видео",
-    "Ovládanie audia a videa",
-    "Ljud- och videoreglage",
-    "ตัวควบคุมเสียงและวิดีโอ",
-    "Ses ile Video Denetimleri",
-    "Елементи керування звуком і відео",
-    "Điều khiển âm thanh và video",
-    "音频和视频控制",
-    "音訊和影片控制項目",
-    "音訊和影片控制項目",
-]
-
 func getWindows() -> [WindowInfo] {
     let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
-    let windowsListInfo = CGWindowListCopyWindowInfo(options, CGWindowID(0))
-    let infoList = windowsListInfo as! [[String: Any]]
-
-    let dicts = infoList.filter { w in
-        guard let name = w["kCGWindowName"] as? String else {
-            return false
-        }
-
-        return name == "StatusIndicator"
-            || name == "Menubar"
-            || (
-                COLORED_MENUBAR_ICON_NAMES.contains(name)
-                    && CONTROL_CENTER_NAMES.contains((w["kCGWindowOwnerName"] as? String) ?? "")
-            )
+    guard let windowsListInfo = CGWindowListCopyWindowInfo(options, CGWindowID(0)) as? [[String: Any]] else {
+        return []
     }
-
-    return dicts.map { WindowInfo.fromInfoDict($0) }
+    return windowsListInfo.map { WindowInfo.fromInfoDict($0) }
 }
 
-@MainActor var windows: [WindowInfo] = []
+@MainActor var allWindows: [WindowInfo] = []
 
-@MainActor func setWindowBrightness(color: DotColor, predicate: (WindowInfo) -> Bool) {
-    let windows = windows.filter(predicate)
-    guard !windows.isEmpty else {
-        return
+@MainActor
+class IndicatorOverlayManager {
+    private var overlays: [Int: NSWindow] = [:]
+    private var highlightWindow: NSWindow?
+
+    func showHighlight(bounds: CGRect) {
+        let frame = flipped(bounds)
+        if let win = highlightWindow {
+            win.setFrame(frame, display: true)
+            win.orderFrontRegardless()
+        } else {
+            let win = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+            win.isOpaque = false
+            win.backgroundColor = .clear
+            win.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow) + 2))
+            win.ignoresMouseEvents = true
+            win.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+            
+            let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
+            view.wantsLayer = true
+            view.layer?.borderColor = NSColor.red.cgColor
+            view.layer?.borderWidth = 2
+            view.layer?.cornerRadius = frame.height / 2
+            win.contentView = view
+            
+            win.orderFrontRegardless()
+            highlightWindow = win
+        }
     }
 
-    #if DEBUG
-        for window in windows {
-            print(window)
-        }
-    #endif
+    func hideHighlight() {
+        highlightWindow?.orderOut(nil)
+        highlightWindow = nil
+    }
 
-    for window in windows {
-        var ids = [window.number]
-        var brightnesses: [Float] = [color.brightness(window: window)]
-        CGSSetWindowListBrightness(cid, &ids, &brightnesses, Int32(1))
+    func update(windows: [WindowInfo], targets: [OverlayTarget], colorHex: String) {
+        let color = NSColor(hex: colorHex)
+        
+        // Find windows to overlay based on targets
+        var toOverlay: [Int: CGRect] = [:]
+        for target in targets where target.enabled {
+            for win in windows {
+                if win.ownerName == target.ownerName && 
+                   win.name == target.windowName &&
+                   abs(win.bounds.width - target.width) < 1 &&
+                   abs(win.bounds.height - target.height) < 1 {
+                    toOverlay[win.number] = win.bounds
+                }
+            }
+        }
+
+        // Also hide any StatusIndicator dots found
+        // (Removed auto-detection of status dots per user request)
+
+        let current = Set(toOverlay.keys)
+
+        for key in overlays.keys where !current.contains(key) {
+            CGSSetWindowAlpha(cid, CGSWindow(key), 1.0)
+            overlays[key]?.orderOut(nil)
+            overlays.removeValue(forKey: key)
+        }
+
+        for (winNumber, bounds) in toOverlay {
+            CGSSetWindowAlpha(cid, CGSWindow(winNumber), 0.0)
+            let frame = flipped(bounds)
+            if let win = overlays[winNumber] {
+                win.setFrame(frame, display: true)
+                win.contentView?.layer?.backgroundColor = color.cgColor
+                CGSSetWindowLevel(cid, CGSWindow(win.windowNumber), Int32(CGWindowLevelForKey(.statusWindow) + 1))
+                win.orderFrontRegardless()
+            } else {
+                let win = makeOverlay(frame: frame, color: color)
+                CGSSetWindowLevel(cid, CGSWindow(win.windowNumber), Int32(CGWindowLevelForKey(.statusWindow) + 1))
+                win.orderFrontRegardless()
+                overlays[winNumber] = win
+            }
+        }
+    }
+
+    func hideAll() {
+        for (key, win) in overlays {
+            CGSSetWindowAlpha(cid, CGSWindow(key), 1.0)
+            win.orderOut(nil)
+        }
+        overlays.removeAll()
+    }
+
+    private func makeOverlay(frame: CGRect, color: NSColor) -> NSWindow {
+        let win = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        win.isOpaque = false
+        win.backgroundColor = .clear
+        win.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow) + 1))
+        win.ignoresMouseEvents = true
+        win.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+        win.hasShadow = false
+
+        let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = color.cgColor
+        view.layer?.cornerRadius = frame.height / 2
+        view.layer?.masksToBounds = true
+        win.contentView = view
+        return win
+    }
+
+    private func flipped(_ rect: CGRect) -> CGRect {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
     }
 }
 
@@ -198,7 +242,9 @@ func pub<T: Equatable>(_ key: Defaults.Key<T>) -> Publishers.Filter<Publishers.R
     Defaults.publisher(key).dropFirst().removeDuplicates().filter { $0.oldValue != $0.newValue }
 }
 
+@MainActor
 class WindowManager: ObservableObject {
+    static let shared = WindowManager()
     @Published var windowToOpen: String? = nil
 
     func open(_ window: String) {
@@ -210,24 +256,21 @@ func mainActor(_ action: @escaping @MainActor () -> Void) {
     Task.init { await MainActor.run { action() }}
 }
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) static var instance: AppDelegate!
 
     var application = NSApplication.shared
     var observers: Set<AnyCancellable> = []
-    var dotHider: Timer?
+    var overlayTimer: Timer?
     var windowFetcher: Timer?
+    let overlayManager = IndicatorOverlayManager()
 
     var didBecomeActiveAtLeastOnce = false
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard didBecomeActiveAtLeastOnce else {
-            return
-        }
-        guard !Defaults[.showMenubarIcon] else {
-            return
-        }
-        WM.open("settings")
+        guard didBecomeActiveAtLeastOnce, !Defaults[.showMenubarIcon] else { return }
+        WindowManager.shared.open("settings")
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -235,29 +278,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             didBecomeActiveAtLeastOnce = true
             return
         }
-        guard !Defaults[.showMenubarIcon] else {
-            return
-        }
-        WM.open("settings")
+        guard !Defaults[.showMenubarIcon] else { return }
+        WindowManager.shared.open("settings")
     }
 
-    @MainActor func initDotHider(timeInterval: TimeInterval) {
-        setWindowBrightness(color: Defaults[.dotColor]) { $0.isDot }
-        setWindowBrightness(color: Defaults[.indicatorColor]) { $0.isControlCenterColoredIcon }
+    @MainActor func initOverlay() {
+        allWindows = getWindows()
+
+        overlayManager.update(
+            windows: allWindows,
+            targets: Defaults[.targets],
+            colorHex: Defaults[.overlayColor]
+        )
 
         windowFetcher?.invalidate()
-        dotHider?.invalidate()
+        overlayTimer?.invalidate()
 
         windowFetcher = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
-            mainActor { windows = getWindows() }
+            mainActor { allWindows = getWindows() }
         }
-        dotHider = Timer.scheduledTimer(withTimeInterval: timeInterval, repeats: true) { _ in
-            let dotColor = Defaults[.dotColor]
-            guard dotColor != .default else { return }
-            let indicatorColor = Defaults[.indicatorColor]
+        overlayTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [overlayManager] _ in
+            let colorHex = Defaults[.overlayColor]
+            let targets = Defaults[.targets]
             mainActor {
-                setWindowBrightness(color: dotColor) { $0.isDot }
-                setWindowBrightness(color: indicatorColor) { $0.isControlCenterColoredIcon }
+                overlayManager.update(
+                    windows: allWindows,
+                    targets: targets,
+                    colorHex: colorHex
+                )
             }
         }
     }
@@ -268,132 +316,117 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.windows.first { $0.title.contains("Settings") }?.close()
 
-        if !CGPreflightScreenCaptureAccess(), Defaults[.indicatorColor] != .default {
+        if !CGPreflightScreenCaptureAccess() {
             let alert = NSAlert()
-            alert.messageText = "Enable menubar icon dimming?"
-            alert.informativeText = "To dim the orange/purple/green menubar icons for microphone, screencapture and FaceTime, the app needs to ask for Screen Recording permissions."
-            alert.addButton(withTitle: "Yes")
-            alert.addButton(withTitle: "No")
+            alert.messageText = "Screen Recording permission needed"
+            alert.informativeText = "YellowDot needs Screen Recording access to detect and overlay the screen sharing indicator."
+            alert.addButton(withTitle: "Grant Access")
+            alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .informational
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
+            if alert.runModal() == .alertFirstButtonReturn {
                 CGRequestScreenCaptureAccess()
-            } else {
-                Defaults[.indicatorColor] = .default
             }
         }
 
-        initDotHider(timeInterval: 1)
+        initOverlay()
 
-        pub(.dotColor).sink { dotColor in
-            setWindowBrightness(color: dotColor.newValue) { $0.isDot }
+        pub(.overlayColor).sink { [overlayManager] change in
+            mainActor {
+                overlayManager.update(
+                    windows: allWindows,
+                    targets: Defaults[.targets],
+                    colorHex: change.newValue
+                )
+            }
         }.store(in: &observers)
-        pub(.indicatorColor).sink { indicatorColor in
-            CGRequestScreenCaptureAccess()
-            setWindowBrightness(color: indicatorColor.newValue) { $0.isControlCenterColoredIcon }
+
+        pub(.targets).sink { [overlayManager] change in
+            mainActor {
+                overlayManager.update(
+                    windows: allWindows,
+                    targets: change.newValue,
+                    colorHex: Defaults[.overlayColor]
+                )
+            }
         }.store(in: &observers)
 
         NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose), name: NSWindow.willCloseNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeMainNotification), name: NSWindow.didBecomeMainNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeMain), name: NSWindow.didBecomeMainNotification, object: nil)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
-    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     @objc func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        if window.title == "YellowDot Settings" {
-            NSApp.setActivationPolicy(.accessory)
-        }
+        guard let window = notification.object as? NSWindow, window.title == "YellowDot Settings" else { return }
+        NSApp.setActivationPolicy(.accessory)
     }
 
-    @objc func windowDidBecomeMainNotification(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        if window.title == "YellowDot Settings" {
-            NSApp.setActivationPolicy(.regular)
-        }
+    @objc func windowDidBecomeMain(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window.title == "YellowDot Settings" else { return }
+        NSApp.setActivationPolicy(.regular)
     }
-
-}
-
-extension NSAppearance {
-    var isDark: Bool { name == .vibrantDark || name == .darkAqua }
-    var isLight: Bool { !isDark }
-    static var dark: NSAppearance? { NSAppearance(named: .darkAqua) }
-    static var light: NSAppearance? { NSAppearance(named: .aqua) }
-    static var vibrantDark: NSAppearance? { NSAppearance(named: .vibrantDark) }
-    static var vibrantLight: NSAppearance? { NSAppearance(named: .vibrantLight) }
-}
-
-func statusBarAppearance(screen: String?) -> NSAppearance? {
-    guard let screen else {
-        return NSApp.windows.first(where: { $0.className == "NSStatusBarWindow" })?.effectiveAppearance ?? .light
-    }
-
-    return NSApp.windows
-        .first(where: { $0.className == "NSStatusBarWindow" && $0.screen?.uuid == screen })?
-        .effectiveAppearance ?? .light
 }
 
 extension NSScreen {
     var id: CGDirectDisplayID? {
-        guard let id = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
-        else { return nil }
+        guard let id = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
         return CGDirectDisplayID(id.uint32Value)
     }
     var uuid: String {
         guard let id, let uuid = CGDisplayCreateUUIDFromDisplayID(id) else { return "" }
         let uuidValue = uuid.takeRetainedValue()
-        let uuidString = CFUUIDCreateString(kCFAllocatorDefault, uuidValue) as String
-        return uuidString
+        return CFUUIDCreateString(kCFAllocatorDefault, uuidValue) as String
     }
 }
 
-enum DotColor: String, Defaults.Serializable {
-    case black
-    case `default`
-    case adaptive
-    case white
-    case dim
-
-    @MainActor func brightness(window: WindowInfo) -> Float {
-        switch self {
-        case .black:
-            -1.0
-        case .default:
-            0.0
-        case .white:
-            1.0
-        case .dim:
-            -0.7
-        case .adaptive:
-            (!CGSIsMenuBarVisibleOnSpace(cid, window.space ?? 1) || (statusBarAppearance(screen: window.screen)?.isLight ?? true)) ? -1.0 : 1.0
-        }
-    }
-}
-
-struct ColorPicker: View {
-    let title: String
-    let blackHelp: String
-    let defaultHelp: String
-    let adaptiveHelp: String
-    let dimHelp: String
-    let whiteHelp: String
-    let selection: Binding<DotColor>
+struct WindowPickerSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @State var windows: [WindowInfo] = []
+    let onSelect: (WindowInfo) -> Void
+    
+    let manager = AppDelegate.instance.overlayManager
 
     var body: some View {
-        Picker(title, selection: selection) {
-            Text("Black").tag(DotColor.black)
-                .help(blackHelp)
-            Text("Default").tag(DotColor.default)
-                .help(defaultHelp)
-            Text("Adaptive").tag(DotColor.adaptive)
-                .help(adaptiveHelp)
-            Text("Dim").tag(DotColor.dim)
-                .help(dimHelp)
-            Text("White").tag(DotColor.white)
-                .help(whiteHelp)
+        VStack {
+            Text("Select a window to overlay").font(.headline).padding()
+            List(windows, id: \.number) { win in
+                Button {
+                    onSelect(win)
+                    dismiss()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(win.displayName).bold()
+                            if !win.displaySub.isEmpty {
+                                Text(win.displaySub).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Text("\(Int(win.bounds.width))x\(Int(win.bounds.height))")
+                            .font(.system(.caption, design: .monospaced))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { inside in
+                    if inside {
+                        manager.showHighlight(bounds: win.bounds)
+                    } else {
+                        manager.hideHighlight()
+                    }
+                }
+            }
+            Button("Cancel") { dismiss() }.padding()
+        }
+        .frame(width: 350, height: 450)
+        .onDisappear {
+            manager.hideHighlight()
+        }
+        .onAppear {
+            windows = getWindows().filter { win in
+                // Only show windows that are likely menubar icons
+                win.bounds.minY < 50 && win.bounds.height <= 40 && !win.ownerName.isEmpty && win.ownerName != "Window Server"
+            }.sorted { $0.displayName < $1.displayName }
         }
     }
 }
@@ -403,47 +436,38 @@ struct YellowDotApp: App {
     init() {}
 
     @AppStorage("showMenubarIcon") var showMenubarIcon = Defaults[.showMenubarIcon]
-    @AppStorage("dotColor") var dotColor = Defaults[.dotColor]
-    @AppStorage("indicatorColor") var indicatorColor = Defaults[.indicatorColor]
+    @AppStorage("overlayColor") var overlayColorHex = Defaults[.overlayColor]
+    @Default(.targets) var targets: [OverlayTarget]
 
     @Environment(\.openWindow) var openWindow
-    @ObservedObject var wm = WM
+    @ObservedObject var wm = WindowManager.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
-    var dotColorPicker: some View {
-        ColorPicker(
-            title: "Dot color",
-            blackHelp: "Makes the dot black.",
-            defaultHelp: "Disables any dot color changes",
-            adaptiveHelp: "Makes the dot black/white based on the color of the menubar icons.",
-            dimHelp: "Makes the dot 70% darker, keeping a bit of its color.",
-            whiteHelp: "Makes the dot white.",
-            selection: $dotColor
-        )
-    }
+    @State var showingPicker = false
 
-    var indicatorColorPicker: some View {
-        ColorPicker(
-            title: "Menubar Indicator color",
-            blackHelp: "Makes the indicator black.",
-            defaultHelp: "Disables any indicator color changes",
-            adaptiveHelp: "Makes the indicator black/white based on the color of the menubar icons.",
-            dimHelp: "Makes the indicator 70% darker, keeping a bit of its color.",
-            whiteHelp: "Makes the indicator white.",
-            selection: $indicatorColor
+    var overlayColor: Binding<Color> {
+        Binding(
+            get: { Color(hex: overlayColorHex) },
+            set: { overlayColorHex = $0.hexString }
         )
     }
 
     var body: some Scene {
-        MenuBarExtra("YellowDot", systemImage: "circle.fill", isInserted: $showMenubarIcon) {
+        MenuBarExtra(isInserted: $showMenubarIcon) {
             Toggle("Show menubar icon", isOn: $showMenubarIcon)
             LaunchAtLogin.Toggle()
-            indicatorColorPicker
-            dotColorPicker
+            Divider()
+            Button("Settings...") {
+                openWindow(id: "settings")
+                NSApp.activate(ignoringOtherApps: true)
+            }
             Divider()
             Button("Quit") {
                 NSApplication.shared.terminate(self)
             }
+        } label: {
+            Image(systemName: "dot.viewfinder")
+                .foregroundStyle(.yellow)
         }
         .menuBarExtraStyle(.menu)
         .onChange(of: showMenubarIcon) { show in
@@ -460,17 +484,61 @@ struct YellowDotApp: App {
         Window("YellowDot Settings", id: "settings") {
             VStack(alignment: .trailing) {
                 Form {
-                    Toggle("Show menubar icon", isOn: $showMenubarIcon)
-                    LaunchAtLogin.Toggle()
-                    indicatorColorPicker.pickerStyle(.segmented)
-                    dotColorPicker.pickerStyle(.segmented)
+                    Section("General") {
+                        Toggle("Show menubar icon", isOn: $showMenubarIcon)
+                        LaunchAtLogin.Toggle()
+                        ColorPicker("Indicator overlay color", selection: overlayColor)
+                    }
+                    Section {
+                        List {
+                            ForEach($targets) { $target in
+                                HStack {
+                                    Toggle("", isOn: $target.enabled).labelsHidden()
+                                    Text(target.description)
+                                    Spacer()
+                                    Button(role: .destructive) {
+                                        targets.removeAll { $0.id == target.id }
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }.buttonStyle(.borderless)
+                                }
+                            }
+                        }
+                        Button {
+                            showingPicker = true
+                        } label: {
+                            Label("Add Overlay Target", systemImage: "plus")
+                        }
+                    } header: {
+                        Text("Active Overlays")
+                    } footer: {
+                        Text("Pick icons from the menubar to overlay with your custom color.")
+                    }
                 }.formStyle(.grouped)
                 Button("Quit") {
                     NSApplication.shared.terminate(self)
                 }.padding()
             }
-            .frame(minWidth: 580, minHeight: 270)
+            .frame(minWidth: 450, minHeight: 400)
+            .sheet(isPresented: $showingPicker) {
+                WindowPickerSheet { win in
+                    let newTarget = OverlayTarget(
+                        ownerName: win.ownerName,
+                        windowName: win.name,
+                        width: win.bounds.width,
+                        height: win.bounds.height
+                    )
+                    if !targets.contains(where: { 
+                        $0.ownerName == newTarget.ownerName && 
+                        $0.windowName == newTarget.windowName &&
+                        $0.width == newTarget.width &&
+                        $0.height == newTarget.height
+                    }) {
+                        targets.append(newTarget)
+                    }
+                }
+            }
         }
-        .defaultSize(width: 580, height: 270)
+        .defaultSize(width: 450, height: 400)
     }
 }
