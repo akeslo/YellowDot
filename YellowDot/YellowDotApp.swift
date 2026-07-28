@@ -30,7 +30,6 @@ extension Defaults.Keys {
     static let showMenubarIcon = Key<Bool>("showMenubarIcon", default: true)
     static let overlayColor = Key<String>("overlayColor", default: "#FFFF00FF")
     static let targets = Key<[OverlayTarget]>("targets", default: [])
-    static let launchCount = Key<Int>("launchCount", default: 0)
 }
 
 extension NSColor {
@@ -312,7 +311,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.instance = self
-        Defaults[.launchCount] += 1
 
         NSApp.windows.first { $0.title.contains("Settings") }?.close()
 
