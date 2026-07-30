@@ -35,13 +35,27 @@ extension Defaults.Keys {
 extension NSColor {
     convenience init(hex: String) {
         let hex = hex.trimmingCharacters(in: .alphanumerics.inverted)
+        guard !hex.isEmpty else {
+            print("YellowDot: Empty hex color string, defaulting to yellow #FFFF00FF")
+            self.init(srgbRed: 1.0, green: 1.0, blue: 0.0, alpha: 1.0)
+            return
+        }
+
         var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
+        let scanSuccess = Scanner(string: hex).scanHexInt64(&int)
+
         let r, g, b, a: UInt64
         switch hex.count {
         case 6: (r, g, b, a) = ((int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF, 255)
         case 8: (r, g, b, a) = ((int >> 24) & 0xFF, (int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF)
-        default: (r, g, b, a) = (0, 0, 0, 255)
+        default:
+            if scanSuccess {
+                print("YellowDot: Invalid hex color length '\(hex)' (\(hex.count) chars), defaulting to yellow #FFFF00FF")
+            } else {
+                print("YellowDot: Invalid hex color string '\(hex)', defaulting to yellow #FFFF00FF")
+            }
+            self.init(srgbRed: 1.0, green: 1.0, blue: 0.0, alpha: 1.0)
+            return
         }
         self.init(srgbRed: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255, alpha: Double(a) / 255)
     }
@@ -282,6 +296,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor func initOverlay() {
+        // Check if screen recording permission was granted
+        guard CGPreflightScreenCaptureAccess() else {
+            print("YellowDot: Screen recording permission not granted, overlay functionality disabled")
+            return
+        }
+
         allWindows = getWindows()
 
         overlayManager.update(
@@ -292,6 +312,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         windowFetcher?.invalidate()
         overlayTimer?.invalidate()
+
+        // Only start timers if there are targets configured
+        let targets = Defaults[.targets]
+        guard !targets.isEmpty else {
+            print("YellowDot: No overlay targets configured, timers not started")
+            return
+        }
 
         windowFetcher = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
             mainActor { allWindows = getWindows() }
@@ -338,13 +365,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }.store(in: &observers)
 
-        pub(.targets).sink { [overlayManager] change in
+        pub(.targets).sink { [overlayManager, weak self] change in
             mainActor {
                 overlayManager.update(
                     windows: allWindows,
                     targets: change.newValue,
                     colorHex: Defaults[.overlayColor]
                 )
+                // Restart timers if targets changed from empty to non-empty or vice versa
+                if change.oldValue.isEmpty != change.newValue.isEmpty {
+                    self?.initOverlay()
+                }
             }
         }.store(in: &observers)
 
