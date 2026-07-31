@@ -1,27 +1,56 @@
-# [YellowDot](https://lowtechguys.com/yellowdot)
+# YellowDot (menubar overlay fork)
 
-###### Hide the macOS yellow recording dot in the corner of your screen
+###### Recolor any macOS menubar item with a color of your choosing
 
-## v2 (after macOS 13)
+This is a personal fork of [YellowDot by FuzzyIdeas](https://lowtechguys.com/yellowdot).
+Upstream hides the macOS recording/location indicator dot. This fork was repurposed to do
+one thing instead: **paint a solid color over menubar items you pick.**
 
-*[available here](https://github.com/FuzzyIdeas/YellowDot/releases)*
+Automatic detection of the recording indicator has been removed — nothing is overlaid until
+you add a target yourself.
 
-Hides the recording or location indicator dot by making it full black or white.
+## How it works
 
-Works best in fullscreen situations on MacBooks with a notch where the black dot would sit on a black menubar making it completely invisible.
+- The picker lists on-screen menubar items; hovering one outlines it on screen so you can
+  tell which is which.
+- Adding a target records its owner, window name, and size. The matching window is made
+  transparent (`CGSSetWindowAlpha`) and a borderless colored pill is drawn in its place.
+- Targets are remembered across launches, can be toggled on and off individually, and share
+  a single overlay color.
 
-In other situations it helps by making the dot blend in with the other menubar icons, making it less of a distraction.
+## Settings
 
----
+Menubar icon → **Settings...**:
 
-## v1 (before macOS 12.2)
+- **Show menubar icon** — hide the icon; the Settings window opens on relaunch instead.
+- **Launch at login**
+- **Indicator overlay color** — applies to every active overlay.
+- **Active Overlays** — the target list, with an **Add Overlay Target** picker.
 
-*[available here](https://github.com/FuzzyIdeas/YellowDot/releases/tag/v1)*
+## Requirements
 
-Inspired by [undot by s4y](https://github.com/s4y/undot) which grabs and moves the dot window outside the screen.
+macOS 13+ and **Screen Recording** permission (needed to enumerate window names and sizes).
+The app prompts on first launch; grant it in System Settings → Privacy & Security → Screen
+Recording.
 
-Since macOS 12.2, the dot is no longer a simple window that can be moved away.
+## Build
 
-Removing the dot completely in 12.2 and later requires altering system files, which I wouldn't want to do.
+```sh
+./build.sh
+```
 
-[Tyshawn Cormier](https://github.com/cormiertyshawn895) came up with a very clever solution for this in his [RecordingIndicatorUtility](https://github.com/cormiertyshawn895/RecordingIndicatorUtility) app. Check it out if you still want to hide the dot!
+Archives the Xcode project with ad-hoc signing and drops `YellowDot.app` in `build/export`.
+Drag it to `/Applications`.
+
+## Uninstall
+
+```sh
+./uninstall.sh
+```
+
+Quits the app, removes it from `/Applications`, resets its TCC permissions (asks for `sudo`),
+and clears its launch agent, preferences, caches, and saved state.
+
+## License
+
+Upstream license retained — see [LICENSE](LICENSE).
