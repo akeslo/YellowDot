@@ -205,12 +205,16 @@ class IndicatorOverlayManager {
         }
     }
 
+    /// Restores the alpha of every window we made invisible and tears down our overlays.
+    /// Must run before the app exits, otherwise the targeted menubar items stay invisible
+    /// until their owning process happens to redraw them.
     func hideAll() {
         for (key, win) in overlays {
             CGSSetWindowAlpha(cid, CGSWindow(key), 1.0)
             win.orderOut(nil)
         }
         overlays.removeAll()
+        hideHighlight()
     }
 
     private func makeOverlay(frame: CGRect, color: NSColor) -> NSWindow {
@@ -353,6 +357,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        windowFetcher?.invalidate()
+        windowFetcher = nil
+        overlayTimer?.invalidate()
+        overlayTimer = nil
+        overlayManager.hideAll()
+    }
 
     @objc func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window.title == "YellowDot Settings" else { return }
