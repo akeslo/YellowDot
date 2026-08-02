@@ -2,6 +2,10 @@
 
 ###### Hide the macOS yellow recording dot in the corner of your screen
 
+## This fork: custom menubar overlay
+
+This fork repurposes the app as a generic menubar-icon color overlay: pick any menubar window (not just the recording dot) and cover it with a solid, custom color. Pick a target window from the menubar icon's window picker, choose a color, and toggle it on/off — useful for masking or recoloring any menubar indicator, not only the system recording dot.
+
 ## v2 (after macOS 13)
 
 *[available here](https://github.com/FuzzyIdeas/YellowDot/releases)*
