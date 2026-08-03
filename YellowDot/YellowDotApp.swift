@@ -41,15 +41,21 @@ extension NSColor {
             return
         }
 
+        // Every character must be a hex digit. Scanner stops at the first
+        // non-hex character and still reports success, so "12zz34" would scan
+        // as 0x12 and silently render near-black instead of falling back to
+        // yellow — the length check alone does not catch it.
+        let isHexDigits = hex.allSatisfy(\.isHexDigit)
+
         var int: UInt64 = 0
         let scanSuccess = Scanner(string: hex).scanHexInt64(&int)
 
         let r, g, b, a: UInt64
-        switch hex.count {
-        case 6: (r, g, b, a) = ((int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF, 255)
-        case 8: (r, g, b, a) = ((int >> 24) & 0xFF, (int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF)
+        switch (hex.count, isHexDigits && scanSuccess) {
+        case (6, true): (r, g, b, a) = ((int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF, 255)
+        case (8, true): (r, g, b, a) = ((int >> 24) & 0xFF, (int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF)
         default:
-            if scanSuccess {
+            if isHexDigits && scanSuccess {
                 print("YellowDot: Invalid hex color length '\(hex)' (\(hex.count) chars), defaulting to yellow #FFFF00FF")
             } else {
                 print("YellowDot: Invalid hex color string '\(hex)', defaulting to yellow #FFFF00FF")
@@ -80,13 +86,6 @@ struct WindowInfo {
     var number: Int
     var ownerName: String
     var name: String
-    var screen: String?
-    var space: Int?
-    var pillNumber: Int?
-
-    var isIndicator: Bool {
-        name == "StatusIndicator" && ownerName == "Window Server"
-    }
 
     var displayName: String {
         if ownerName == "Control Center" {
@@ -108,7 +107,7 @@ struct WindowInfo {
         return name
     }
 
-    static func fromInfoDict(_ dict: [String: Any], pillNumber: Int? = nil) -> WindowInfo {
+    static func fromInfoDict(_ dict: [String: Any]) -> WindowInfo {
         var rect = CGRect.zero
         if let bounds = dict["kCGWindowBounds"] as? [String: CGFloat],
            let x = bounds["X"], let y = bounds["Y"],
@@ -116,16 +115,11 @@ struct WindowInfo {
         {
             rect = CGRect(x: x, y: y, width: width, height: height)
         }
-        let id = (dict["kCGWindowNumber"] as? Int) ?? 0
-        let screen = CGSCopyManagedDisplayForWindow(cid, id)?.takeRetainedValue() as String?
         return WindowInfo(
             bounds: rect,
-            number: id,
+            number: (dict["kCGWindowNumber"] as? Int) ?? 0,
             ownerName: (dict["kCGWindowOwnerName"] as? String) ?? "",
-            name: (dict["kCGWindowName"] as? String) ?? "",
-            screen: screen,
-            space: CGSManagedDisplayGetCurrentSpace(cid, screen as CFString?),
-            pillNumber: pillNumber
+            name: (dict["kCGWindowName"] as? String) ?? ""
         )
     }
 }
