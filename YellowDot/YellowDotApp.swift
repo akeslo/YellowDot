@@ -41,19 +41,28 @@ extension NSColor {
             return
         }
 
+        // Every character must be a hex digit. `scanHexInt64` stops at the first
+        // non-hex character and still reports success, so a string like "FFZZ00"
+        // would otherwise scan as 0xFF and silently render as near-black.
+        guard hex.allSatisfy(\.isHexDigit) else {
+            print("YellowDot: Invalid hex color string '\(hex)', defaulting to yellow #FFFF00FF")
+            self.init(srgbRed: 1.0, green: 1.0, blue: 0.0, alpha: 1.0)
+            return
+        }
+
         var int: UInt64 = 0
-        let scanSuccess = Scanner(string: hex).scanHexInt64(&int)
+        guard Scanner(string: hex).scanHexInt64(&int) else {
+            print("YellowDot: Invalid hex color string '\(hex)', defaulting to yellow #FFFF00FF")
+            self.init(srgbRed: 1.0, green: 1.0, blue: 0.0, alpha: 1.0)
+            return
+        }
 
         let r, g, b, a: UInt64
         switch hex.count {
         case 6: (r, g, b, a) = ((int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF, 255)
         case 8: (r, g, b, a) = ((int >> 24) & 0xFF, (int >> 16) & 0xFF, (int >> 8) & 0xFF, int & 0xFF)
         default:
-            if scanSuccess {
-                print("YellowDot: Invalid hex color length '\(hex)' (\(hex.count) chars), defaulting to yellow #FFFF00FF")
-            } else {
-                print("YellowDot: Invalid hex color string '\(hex)', defaulting to yellow #FFFF00FF")
-            }
+            print("YellowDot: Invalid hex color length '\(hex)' (\(hex.count) chars), defaulting to yellow #FFFF00FF")
             self.init(srgbRed: 1.0, green: 1.0, blue: 0.0, alpha: 1.0)
             return
         }
