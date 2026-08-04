@@ -8,18 +8,36 @@ EXPORT_PATH="$PROJECT_DIR/build/export"
 
 echo "Building YellowDot..."
 
-xcodebuild archive \
-    -project "$PROJECT_DIR/YellowDot.xcodeproj" \
-    -scheme "$SCHEME" \
-    -configuration Release \
-    -archivePath "$ARCHIVE_PATH" \
-    CODE_SIGN_IDENTITY="-" \
-    CODE_SIGNING_REQUIRED=NO \
-    CODE_SIGNING_ALLOWED=NO \
-    | xcpretty 2>/dev/null || true
+# Drop any previous archive first: without this, a failed build leaves the last
+# successful .app in place and every step below happily reports "Build complete".
+rm -rf "$ARCHIVE_PATH"
+
+# `|| true` here used to swallow every build failure, defeating `set -eo pipefail`.
+# xcpretty is optional; when it is missing we fall back to raw xcodebuild output
+# rather than discarding the log and the exit status along with it.
+if command -v xcpretty >/dev/null 2>&1; then
+    xcodebuild archive \
+        -project "$PROJECT_DIR/YellowDot.xcodeproj" \
+        -scheme "$SCHEME" \
+        -configuration Release \
+        -archivePath "$ARCHIVE_PATH" \
+        CODE_SIGN_IDENTITY="-" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO \
+        | xcpretty
+else
+    xcodebuild archive \
+        -project "$PROJECT_DIR/YellowDot.xcodeproj" \
+        -scheme "$SCHEME" \
+        -configuration Release \
+        -archivePath "$ARCHIVE_PATH" \
+        CODE_SIGN_IDENTITY="-" \
+        CODE_SIGNING_REQUIRED=NO \
+        CODE_SIGNING_ALLOWED=NO
+fi
 
 # Extract .app directly from archive
-APP_IN_ARCHIVE=$(find "$ARCHIVE_PATH/Products" -name "*.app" | head -1)
+APP_IN_ARCHIVE=$(find "$ARCHIVE_PATH/Products" -name "*.app" 2>/dev/null | head -1 || true)
 
 if [ -z "$APP_IN_ARCHIVE" ]; then
     echo "ERROR: No .app found in archive"
