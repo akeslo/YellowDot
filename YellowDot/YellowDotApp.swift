@@ -89,13 +89,6 @@ struct WindowInfo {
     var number: Int
     var ownerName: String
     var name: String
-    var screen: String?
-    var space: Int?
-    var pillNumber: Int?
-
-    var isIndicator: Bool {
-        name == "StatusIndicator" && ownerName == "Window Server"
-    }
 
     var displayName: String {
         if ownerName == "Control Center" {
@@ -117,7 +110,7 @@ struct WindowInfo {
         return name
     }
 
-    static func fromInfoDict(_ dict: [String: Any], pillNumber: Int? = nil) -> WindowInfo {
+    static func fromInfoDict(_ dict: [String: Any]) -> WindowInfo {
         var rect = CGRect.zero
         if let bounds = dict["kCGWindowBounds"] as? [String: CGFloat],
            let x = bounds["X"], let y = bounds["Y"],
@@ -125,16 +118,11 @@ struct WindowInfo {
         {
             rect = CGRect(x: x, y: y, width: width, height: height)
         }
-        let id = (dict["kCGWindowNumber"] as? Int) ?? 0
-        let screen = CGSCopyManagedDisplayForWindow(cid, id)?.takeRetainedValue() as String?
         return WindowInfo(
             bounds: rect,
-            number: id,
+            number: (dict["kCGWindowNumber"] as? Int) ?? 0,
             ownerName: (dict["kCGWindowOwnerName"] as? String) ?? "",
-            name: (dict["kCGWindowName"] as? String) ?? "",
-            screen: screen,
-            space: CGSManagedDisplayGetCurrentSpace(cid, screen as CFString?),
-            pillNumber: pillNumber
+            name: (dict["kCGWindowName"] as? String) ?? ""
         )
     }
 }
