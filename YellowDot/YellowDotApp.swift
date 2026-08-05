@@ -73,7 +73,10 @@ extension NSColor {
         let c = usingColorSpace(.sRGB) ?? self
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         c.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return String(format: "#%02X%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255), Int(a * 255))
+        return String(
+            format: "#%02X%02X%02X%02X",
+            Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()), Int((a * 255).rounded())
+        )
     }
 }
 
