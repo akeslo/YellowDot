@@ -348,7 +348,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !CGPreflightScreenCaptureAccess() {
             let alert = NSAlert()
             alert.messageText = "Screen Recording permission needed"
-            alert.informativeText = "YellowDot needs Screen Recording access to detect and overlay the screen sharing indicator."
+            alert.informativeText = "YellowDot needs Screen Recording access to enumerate menubar items so it can overlay the ones you pick."
             alert.addButton(withTitle: "Grant Access")
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .informational
