@@ -291,6 +291,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        // Screen Recording permission can be granted from System Settings while the app
+        // is still running (or was denied at launch and fixed later). initOverlay() bails
+        // out permanently the first time it sees no permission, so without this retry the
+        // overlay stays dead until the user quits and relaunches the app.
+        if overlayTimer == nil, windowFetcher == nil, CGPreflightScreenCaptureAccess() {
+            initOverlay()
+        }
+
         guard didBecomeActiveAtLeastOnce else {
             didBecomeActiveAtLeastOnce = true
             return
