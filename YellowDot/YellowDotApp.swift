@@ -473,8 +473,12 @@ struct WindowPickerSheet: View {
         }
         .onAppear {
             windows = getWindows().filter { win in
-                // Only show windows that are likely menubar icons
-                win.bounds.minY < 50 && win.bounds.height <= 40 && !win.ownerName.isEmpty && win.ownerName != "Window Server"
+                // Only show windows that are likely menubar icons. Also exclude our own
+                // process: our overlay/highlight windows sit at the same small size and
+                // near-top position as real menubar items, so without this a user could
+                // pick one of our own overlays as a target and overlay it with itself.
+                win.bounds.minY < 50 && win.bounds.height <= 40 && !win.ownerName.isEmpty &&
+                    win.ownerName != "Window Server" && win.ownerName != ProcessInfo.processInfo.processName
             }.sorted { $0.displayName < $1.displayName }
         }
     }
