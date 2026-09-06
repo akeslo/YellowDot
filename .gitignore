@@ -89,3 +89,5 @@ fastlane/test_output
 
 iOSInjectionProject/
 .claude-code-hermit/
+
+CLAUDE.local.md
