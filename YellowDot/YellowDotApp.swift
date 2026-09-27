@@ -92,6 +92,7 @@ struct WindowInfo {
     var number: Int
     var ownerName: String
     var name: String
+    var ownerPID: pid_t = 0
 
     var displayName: String {
         if ownerName == "Control Center" {
@@ -125,7 +126,8 @@ struct WindowInfo {
             bounds: rect,
             number: (dict["kCGWindowNumber"] as? Int) ?? 0,
             ownerName: (dict["kCGWindowOwnerName"] as? String) ?? "",
-            name: (dict["kCGWindowName"] as? String) ?? ""
+            name: (dict["kCGWindowName"] as? String) ?? "",
+            ownerPID: (dict["kCGWindowOwnerPID"] as? pid_t) ?? 0
         )
     }
 }
@@ -477,8 +479,10 @@ struct WindowPickerSheet: View {
                 // process: our overlay/highlight windows sit at the same small size and
                 // near-top position as real menubar items, so without this a user could
                 // pick one of our own overlays as a target and overlay it with itself.
+                // Matched by PID, not name: the window owner name is the localized app
+                // name, which need not equal the executable's process name.
                 win.bounds.minY < 50 && win.bounds.height <= 40 && !win.ownerName.isEmpty &&
-                    win.ownerName != "Window Server" && win.ownerName != ProcessInfo.processInfo.processName
+                    win.ownerName != "Window Server" && win.ownerPID != ProcessInfo.processInfo.processIdentifier
             }.sorted { $0.displayName < $1.displayName }
         }
     }
